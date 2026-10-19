@@ -1,0 +1,37 @@
+# ============================================================
+# Cardiotoxicity Risk Assessment - Python Dependencies
+# ============================================================
+# Python >= 3.13 required (tested on 3.14.5)
+#
+# Phase 1: Dataset Exploration & Preprocessing
+# Install with: pip install -r requirements.txt
+# ============================================================
+
+# --- Data Handling ---
+pandas>=2.2,<4
+numpy>=2.0,<3
+openpyxl>=3.1           # Excel support if needed
+
+# --- Visualization ---
+matplotlib>=3.9,<4
+seaborn>=0.13,<1
+
+# --- Machine Learning (preprocessing & evaluation) ---
+scikit-learn>=1.5,<2
+
+# --- Image Handling ---
+Pillow>=10.0,<14
+
+# --- Jupyter Notebook Support ---
+jupyter>=1.1,<2
+ipykernel>=6.0
+
+# ============================================================
+# Phase 2+ Dependencies (install when needed)
+# Uncomment when ready for model training:
+# ============================================================
+# torch>=2.14             # PyTorch (CPU): pip install torch --index-url https://download.pytorch.org/whl/cpu
+# torchvision>=0.29       # PyTorch Vision: pip install torchvision --index-url https://download.pytorch.org/whl/cpu
+# shap>=0.45              # SHAP explanations
+# streamlit>=1.38         # Web application
+# opencv-python>=4.9      # Image processing (alternative to Pillow)
