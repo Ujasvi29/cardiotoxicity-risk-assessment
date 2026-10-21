@@ -1,0 +1,28 @@
+{
+  "project": "Interpretable Multimodal Framework for Cardiotoxicity Risk Assessment",
+  "random_seed": 42,
+  "cohorts": {
+    "cohort_a_clinical": {
+      "source": "dataset/BC_cardiotox_clinical_variables.csv",
+      "total_samples": 531,
+      "positive_samples": 54,
+      "split_manifest": "data/splits/cohort_a_clinical_splits.json"
+    },
+    "cohort_b_multimodal": {
+      "source": "dataset/BC_cardiotox_clinical_and_functional_variables.csv (rows 0..269)",
+      "total_samples": 270,
+      "positive_samples": 27,
+      "split_manifest": "data/splits/cohort_b_multimodal_splits.json"
+    }
+  },
+  "target": "CTRCD",
+  "time_to_event": "time",
+  "evaluation_metrics": [
+    "PR-AUC (Average Precision)",
+    "ROC-AUC",
+    "Sensitivity / Recall",
+    "Specificity",
+    "F1-Score",
+    "Balanced Accuracy"
+  ]
+}

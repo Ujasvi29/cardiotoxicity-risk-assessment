@@ -343,9 +343,161 @@ def run_preprocessing_pipeline() -> Dict:
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
-    print(f"Preprocessing completed successfully! Summary written to {report_path}")
+    print(f"Full-cohort reference preprocessing completed! Summary written to {report_path}")
     return summary
+
+
+# ============================================================
+# 6. Leakage-Free Preprocessing on Train/Val/Test Splits
+# ============================================================
+
+def prepare_leak_free_split_datasets(
+    splits_dir: Optional[Path] = None,
+    output_dir: Optional[Path] = None
+) -> Dict:
+    """
+    Produce leak-free train, validation, and test datasets where all imputers,
+    scalers, and waveform divisors are fitted STRICTLY on the training split.
+    Validation and test splits are transformed without fitting.
+    """
+    if splits_dir is None:
+        splits_dir = BASE_DIR / "data" / "splits"
+    if output_dir is None:
+        output_dir = PROCESSED_DIR / "splits"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    clin_manifest_path = splits_dir / "cohort_a_clinical_splits.json"
+    multi_manifest_path = splits_dir / "cohort_b_multimodal_splits.json"
+
+    if not clin_manifest_path.exists() or not multi_manifest_path.exists():
+        from src.data.splitting import generate_and_save_all_splits
+        generate_and_save_all_splits()
+
+    with open(clin_manifest_path, "r", encoding="utf-8") as f:
+        manifest_clin = json.load(f)
+    with open(multi_manifest_path, "r", encoding="utf-8") as f:
+        manifest_multi = json.load(f)
+
+    df_clin, df_func, df_comb = load_raw_data()
+
+    # -------------------------------------------------------------
+    # 6.1 Cohort A: Clinical-Only Train/Val/Test Isolation
+    # -------------------------------------------------------------
+    print("Preparing Cohort A (Clinical-only) leak-free splits...")
+    idx_train_a = manifest_clin["indices"]["train"]
+    idx_val_a = manifest_clin["indices"]["val"]
+    idx_test_a = manifest_clin["indices"]["test"]
+
+    train_a_raw = df_clin.iloc[idx_train_a].copy()
+    val_a_raw = df_clin.iloc[idx_val_a].copy()
+    test_a_raw = df_clin.iloc[idx_test_a].copy()
+
+    # Fit preprocessor strictly on train_a
+    preprocessor_a = build_clinical_preprocessor(scaling_method="robust")
+    X_train_a, preprocessor_a = preprocess_clinical_dataframe(
+        train_a_raw, preprocessor=preprocessor_a, fit=True
+    )
+    X_val_a, _ = preprocess_clinical_dataframe(
+        val_a_raw, preprocessor=preprocessor_a, fit=False
+    )
+    X_test_a, _ = preprocess_clinical_dataframe(
+        test_a_raw, preprocessor=preprocessor_a, fit=False
+    )
+
+    y_train_a = train_a_raw[[TARGET_COL, TIME_COL]]
+    y_val_a = val_a_raw[[TARGET_COL, TIME_COL]]
+    y_test_a = test_a_raw[[TARGET_COL, TIME_COL]]
+
+    # Export Cohort A splits
+    X_train_a.to_csv(output_dir / "cohort_a_train_features.csv", index=False)
+    y_train_a.to_csv(output_dir / "cohort_a_train_targets.csv", index=False)
+    X_val_a.to_csv(output_dir / "cohort_a_val_features.csv", index=False)
+    y_val_a.to_csv(output_dir / "cohort_a_val_targets.csv", index=False)
+    X_test_a.to_csv(output_dir / "cohort_a_test_features.csv", index=False)
+    y_test_a.to_csv(output_dir / "cohort_a_test_targets.csv", index=False)
+
+    # -------------------------------------------------------------
+    # 6.2 Cohort B: Multimodal Train/Val/Test Isolation
+    # -------------------------------------------------------------
+    print("Preparing Cohort B (Multimodal) leak-free splits...")
+    idx_train_b = manifest_multi["indices"]["train"]
+    idx_val_b = manifest_multi["indices"]["val"]
+    idx_test_b = manifest_multi["indices"]["test"]
+
+    df_multi_raw = df_comb.iloc[:270].copy()
+    train_b_raw = df_multi_raw.iloc[idx_train_b].copy()
+    val_b_raw = df_multi_raw.iloc[idx_val_b].copy()
+    test_b_raw = df_multi_raw.iloc[idx_test_b].copy()
+
+    # Fit clinical preprocessor strictly on train_b
+    preprocessor_b = build_clinical_preprocessor(scaling_method="robust")
+    X_train_b, preprocessor_b = preprocess_clinical_dataframe(
+        train_b_raw, preprocessor=preprocessor_b, fit=True
+    )
+    X_val_b, _ = preprocess_clinical_dataframe(
+        val_b_raw, preprocessor=preprocessor_b, fit=False
+    )
+    X_test_b, _ = preprocess_clinical_dataframe(
+        test_b_raw, preprocessor=preprocessor_b, fit=False
+    )
+
+    y_train_b = train_b_raw[[TARGET_COL, TIME_COL]]
+    y_val_b = val_b_raw[[TARGET_COL, TIME_COL]]
+    y_test_b = test_b_raw[[TARGET_COL, TIME_COL]]
+
+    # Process waveforms: fit global scale divisor strictly on train_b
+    waveform_cols = [c for c in df_func.columns if c.startswith("t ")]
+    wf_raw = df_func[waveform_cols].to_numpy(dtype=np.float32)
+
+    wf_train_raw = wf_raw[idx_train_b]
+    wf_val_raw = wf_raw[idx_val_b]
+    wf_test_raw = wf_raw[idx_test_b]
+
+    # Fit waveform scaling factor on training curves only
+    train_waveform_scale = float(np.percentile(np.abs(wf_train_raw), 99.5))
+
+    wf_train_scaled = wf_train_raw / train_waveform_scale
+    wf_val_scaled = wf_val_raw / train_waveform_scale
+    wf_test_scaled = wf_test_raw / train_waveform_scale
+
+    # Export Cohort B splits
+    export_wf_cols = [f"t_{i}" for i in range(1, 1002)]
+
+    X_train_b.to_csv(output_dir / "cohort_b_train_features.csv", index=False)
+    y_train_b.to_csv(output_dir / "cohort_b_train_targets.csv", index=False)
+    pd.DataFrame(wf_train_raw, columns=export_wf_cols).to_csv(output_dir / "cohort_b_train_waveforms_raw.csv", index=False)
+    pd.DataFrame(wf_train_scaled, columns=export_wf_cols).to_csv(output_dir / "cohort_b_train_waveforms_scaled.csv", index=False)
+
+    X_val_b.to_csv(output_dir / "cohort_b_val_features.csv", index=False)
+    y_val_b.to_csv(output_dir / "cohort_b_val_targets.csv", index=False)
+    pd.DataFrame(wf_val_raw, columns=export_wf_cols).to_csv(output_dir / "cohort_b_val_waveforms_raw.csv", index=False)
+    pd.DataFrame(wf_val_scaled, columns=export_wf_cols).to_csv(output_dir / "cohort_b_val_waveforms_scaled.csv", index=False)
+
+    X_test_b.to_csv(output_dir / "cohort_b_test_features.csv", index=False)
+    y_test_b.to_csv(output_dir / "cohort_b_test_targets.csv", index=False)
+    pd.DataFrame(wf_test_raw, columns=export_wf_cols).to_csv(output_dir / "cohort_b_test_waveforms_raw.csv", index=False)
+    pd.DataFrame(wf_test_scaled, columns=export_wf_cols).to_csv(output_dir / "cohort_b_test_waveforms_scaled.csv", index=False)
+
+    split_summary = {
+        "status": "success",
+        "output_directory": str(output_dir),
+        "cohort_a_shapes": {
+            "train": [X_train_a.shape, y_train_a.shape],
+            "val": [X_val_a.shape, y_val_a.shape],
+            "test": [X_test_a.shape, y_test_a.shape]
+        },
+        "cohort_b_shapes": {
+            "train": [X_train_b.shape, y_train_b.shape, wf_train_raw.shape],
+            "val": [X_val_b.shape, y_val_b.shape, wf_val_raw.shape],
+            "test": [X_test_b.shape, y_test_b.shape, wf_test_raw.shape]
+        },
+        "train_waveform_scale": train_waveform_scale
+    }
+
+    print(f"Leak-free split datasets exported to {output_dir}")
+    return split_summary
 
 
 if __name__ == "__main__":
     run_preprocessing_pipeline()
+    prepare_leak_free_split_datasets()
