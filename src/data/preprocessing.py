@@ -25,13 +25,12 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
-BASE_DIR = Path(r"c:\dev\cardiotoxicity risk assesment")
-DATASET_DIR = BASE_DIR / "dataset"
+from src.utils.paths import PROJECT_ROOT, get_data_root, require_raw_dataset
+
+BASE_DIR = PROJECT_ROOT
+DATASET_DIR = get_data_root()
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
 REPORT_DIR = BASE_DIR / "outputs" / "reports"
-
-PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
 # 1. Feature Schema Definition
@@ -116,9 +115,10 @@ def load_raw_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     Load raw CSVs using European delimiters.
     Original files in dataset/ are strictly read-only.
     """
-    clin_path = DATASET_DIR / "BC_cardiotox_clinical_variables.csv"
-    func_path = DATASET_DIR / "BC_cardiotox_functional_variable.csv"
-    comb_path = DATASET_DIR / "BC_cardiotox_clinical_and_functional_variables.csv"
+    data_root = require_raw_dataset()
+    clin_path = data_root / "BC_cardiotox_clinical_variables.csv"
+    func_path = data_root / "BC_cardiotox_functional_variable.csv"
+    comb_path = data_root / "BC_cardiotox_clinical_and_functional_variables.csv"
 
     df_clin = pd.read_csv(clin_path, sep=';', decimal=',')
     df_func = pd.read_csv(func_path, sep=';', decimal=',')
@@ -223,6 +223,8 @@ def run_preprocessing_pipeline() -> Dict:
     """Execute complete Module 4 preprocessing and export processed files."""
     print("Loading raw datasets from dataset/...")
     df_clin, df_func, df_comb = load_raw_data()
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Verify input shapes
     assert df_clin.shape == (531, 27), f"Unexpected clinical shape: {df_clin.shape}"
@@ -312,7 +314,7 @@ def run_preprocessing_pipeline() -> Dict:
 
     summary = {
         "status": "success",
-        "raw_directory": str(DATASET_DIR),
+        "raw_directory": str(get_data_root()),
         "processed_directory": str(PROCESSED_DIR),
         "exported_files": [
             "feature_schema.json",
@@ -364,7 +366,6 @@ def prepare_leak_free_split_datasets(
         splits_dir = BASE_DIR / "data" / "splits"
     if output_dir is None:
         output_dir = PROCESSED_DIR / "splits"
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     clin_manifest_path = splits_dir / "cohort_a_clinical_splits.json"
     multi_manifest_path = splits_dir / "cohort_b_multimodal_splits.json"
@@ -379,6 +380,7 @@ def prepare_leak_free_split_datasets(
         manifest_multi = json.load(f)
 
     df_clin, df_func, df_comb = load_raw_data()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------------
     # 6.1 Cohort A: Clinical-Only Train/Val/Test Isolation

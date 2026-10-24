@@ -17,25 +17,24 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-BASE_DIR = Path(r"c:\dev\cardiotoxicity risk assesment")
-DATASET_DIR = BASE_DIR / "dataset"
+from src.utils.paths import PROJECT_ROOT, get_data_root, require_raw_dataset
+
+BASE_DIR = PROJECT_ROOT
+DATASET_DIR = get_data_root()
 IMAGES_DIR = DATASET_DIR / "IMAGES"
 FIG_DIR = BASE_DIR / "outputs" / "figures"
 REPORT_DIR = BASE_DIR / "outputs" / "reports"
 
-FIG_DIR.mkdir(parents=True, exist_ok=True)
-REPORT_DIR.mkdir(parents=True, exist_ok=True)
-
-
 def audit_image_files() -> Dict:
     """Audit all 270 images under dataset/IMAGES/ for integrity and consistency."""
-    img_files = sorted(list(IMAGES_DIR.glob("*.png")))
+    data_root = require_raw_dataset(include_images=True)
+    img_files = sorted(list((data_root / "IMAGES").glob("*.png")))
     hashes = {}
     dims = {}
     modes = {}
@@ -91,9 +90,11 @@ def generate_contact_sheet(
     Displays variations in Doppler signal intensity, ECG trace, noise, and baseline.
     """
     if output_path is None:
+        FIG_DIR.mkdir(parents=True, exist_ok=True)
         output_path = FIG_DIR / "tdi_contact_sheet.png"
 
-    all_files = sorted(list(IMAGES_DIR.glob("*.png")), key=lambda p: int(p.stem.split('(')[1].split(')')[0]))
+    data_root = require_raw_dataset(include_images=True)
+    all_files = sorted(list((data_root / "IMAGES").glob("*.png")), key=lambda p: int(p.stem.split('(')[1].split(')')[0]))
 
     if sample_indices is None:
         # Pick 16 evenly spaced images across the 270 cohort
@@ -168,6 +169,9 @@ def preprocess_single_image(
 
 def run_image_audit_and_demo():
     """Run full audit and export summary JSON and contact sheet."""
+    require_raw_dataset(include_images=True)
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     print("Auditing all 270 TDI images in dataset/IMAGES/...")
     audit = audit_image_files()
 

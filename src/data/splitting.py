@@ -23,13 +23,12 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 
-BASE_DIR = Path(r"c:\dev\cardiotoxicity risk assesment")
-DATASET_DIR = BASE_DIR / "dataset"
+from src.utils.paths import PROJECT_ROOT, get_data_root, require_raw_dataset
+
+BASE_DIR = PROJECT_ROOT
+DATASET_DIR = get_data_root()
 SPLITS_DIR = BASE_DIR / "data" / "splits"
 CONFIG_DIR = BASE_DIR / "configs"
-
-SPLITS_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_RANDOM_SEED = 42
 TARGET_COL = "CTRCD"
@@ -143,13 +142,16 @@ def generate_and_save_all_splits(seed: int = DEFAULT_RANDOM_SEED) -> Dict:
     2. Cohort B (Multimodal, N=270)
     """
     print(f"Loading raw datasets for split generation (seed={seed})...")
-    clin_path = DATASET_DIR / "BC_cardiotox_clinical_variables.csv"
-    func_path = DATASET_DIR / "BC_cardiotox_functional_variable.csv"
-    comb_path = DATASET_DIR / "BC_cardiotox_clinical_and_functional_variables.csv"
+    data_root = require_raw_dataset()
+    clin_path = data_root / "BC_cardiotox_clinical_variables.csv"
+    func_path = data_root / "BC_cardiotox_functional_variable.csv"
+    comb_path = data_root / "BC_cardiotox_clinical_and_functional_variables.csv"
 
     df_clin = pd.read_csv(clin_path, sep=';', decimal=',')
     df_comb = pd.read_csv(comb_path, sep=';', decimal=',')
     df_func = pd.read_csv(func_path, sep=';', decimal=',')
+
+    SPLITS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Cohort A: 531 clinical patients
     print("Generating Cohort A (Clinical-only, N=531) splits...")
@@ -263,6 +265,7 @@ def generate_and_save_all_splits(seed: int = DEFAULT_RANDOM_SEED) -> Dict:
         ]
     }
     config_path = CONFIG_DIR / "data_config.json"
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data_config, f, indent=2)
 

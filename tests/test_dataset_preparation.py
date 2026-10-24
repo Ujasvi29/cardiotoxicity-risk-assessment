@@ -28,6 +28,7 @@ import json
 import warnings
 import numpy as np
 import pandas as pd
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -49,15 +50,17 @@ from src.data.preprocessing import (
     FEATURE_COLS,
     TIME_COL
 )
+from src.utils.paths import get_data_root
 
 BASE_DIR = PROJECT_ROOT
-DATASET_DIR = BASE_DIR / "dataset"
+DATASET_DIR = get_data_root()
 SPLITS_DIR = BASE_DIR / "data" / "splits"
 PROCESSED_SPLITS_DIR = BASE_DIR / "data" / "processed" / "splits"
 CONFIG_DIR = BASE_DIR / "configs"
 SCHEMA_PATH = BASE_DIR / "data" / "processed" / "feature_schema.json"
 
 
+@pytest.mark.requires_raw_data
 def test_1_raw_datasets_unchanged():
     """Verify raw source files in dataset/ have not been modified or corrupted."""
     clin_path = DATASET_DIR / "BC_cardiotox_clinical_variables.csv"
@@ -69,6 +72,7 @@ def test_1_raw_datasets_unchanged():
     assert comb_path.exists() and comb_path.stat().st_size == 3664729, "Combined CSV modified!"
 
 
+@pytest.mark.requires_raw_data
 def test_2_expected_cohort_sizes_and_labels():
     """Verify ground truth sizes and target counts for Cohort A and Cohort B."""
     df_clin, df_func, df_comb = load_raw_data()
@@ -87,6 +91,7 @@ def test_2_expected_cohort_sizes_and_labels():
     assert (df_func[TARGET_COL] == 0).sum() == 243
 
 
+@pytest.mark.requires_raw_data
 def test_3_split_manifests_reproducible():
     """Verify that split generation produces identical partitions given seed=42."""
     df_clin, _, _ = load_raw_data()
@@ -95,6 +100,7 @@ def test_3_split_manifests_reproducible():
     assert split1 == split2, "Split indices are non-deterministic!"
 
 
+@pytest.mark.requires_split_data
 def test_4_no_technical_record_overlap():
     """Verify zero overlap between train, val, and test splits within each cohort."""
     for manifest_name in ["cohort_a_clinical_splits.json", "cohort_b_multimodal_splits.json"]:
@@ -111,6 +117,7 @@ def test_4_no_technical_record_overlap():
         assert len(s_train | s_val | s_test) == manifest["total_records"]
 
 
+@pytest.mark.requires_split_data
 def test_5_patient_grouping_logic_ready():
     """Verify patient grouping logic: handles None (current state), and groups by patient if IDs exist."""
     # Synthetic patient grouped split test
@@ -132,6 +139,7 @@ def test_5_patient_grouping_logic_ready():
     assert m["record_assignments"]["REC_CLIN_000"]["patient_id"] is None
 
 
+@pytest.mark.requires_split_data
 def test_6_missing_patient_identifiers_limitation_documented():
     """Verify that limitation of missing patient identifiers is explicitly stated in manifests and config."""
     for m_file in ["cohort_a_clinical_splits.json", "cohort_b_multimodal_splits.json"]:
@@ -146,6 +154,7 @@ def test_6_missing_patient_identifiers_limitation_documented():
     assert "patient_identifier_limitation" in cfg
 
 
+@pytest.mark.requires_split_data
 def test_7_target_and_time_excluded_from_predictors():
     """Verify CTRCD and time are strictly absent from all split feature CSVs."""
     for cohort in ["cohort_a", "cohort_b"]:
@@ -157,6 +166,7 @@ def test_7_target_and_time_excluded_from_predictors():
             assert df.shape[1] == 25, f"Expected 25 features, found {df.shape[1]} in {fpath.name}"
 
 
+@pytest.mark.requires_split_data
 def test_8_class_distributions_correctly_reported():
     """Verify profiles in split manifests match actual target split files."""
     with open(SPLITS_DIR / "cohort_a_clinical_splits.json", "r") as f:
@@ -174,6 +184,7 @@ def test_8_class_distributions_correctly_reported():
     assert prof_b["test"]["positives"] == 4 and prof_b["test"]["negatives"] == 37
 
 
+@pytest.mark.requires_split_data
 def test_9_valid_target_values():
     """Verify all target split CSVs contain only valid binary {0, 1} values with zero NaNs."""
     for fpath in PROCESSED_SPLITS_DIR.glob("*_targets.csv"):
@@ -183,6 +194,7 @@ def test_9_valid_target_values():
         assert df[TIME_COL].isnull().sum() == 0
 
 
+@pytest.mark.requires_split_data
 def test_10_feature_column_order_consistent():
     """Verify feature column names and order are identical across all partitions and match schema."""
     with open(SCHEMA_PATH, "r") as f:
@@ -195,6 +207,7 @@ def test_10_feature_column_order_consistent():
             assert list(df.columns) == expected_cols, f"Feature column mismatch in {cohort}_{split}_features.csv!"
 
 
+@pytest.mark.requires_split_data
 def test_11_waveform_shapes_and_order():
     """Verify all functional waveform splits have exactly 1001 columns in sequence t_1 .. t_1001."""
     expected_wf_cols = [f"t_{i}" for i in range(1, 1002)]
@@ -207,6 +220,8 @@ def test_11_waveform_shapes_and_order():
             assert df.isnull().sum().sum() == 0
 
 
+@pytest.mark.requires_raw_data
+@pytest.mark.requires_split_data
 def test_12_training_only_preprocessing_reused():
     """Verify that clinical imputers and scalers are fitted on training data only."""
     df_clin, _, _ = load_raw_data()
@@ -224,11 +239,10 @@ def test_12_training_only_preprocessing_reused():
     np.testing.assert_allclose(imputer_medians, expected_medians)
 
 
-def test_13_synthetic_perturbation_leak_free_proof():
+def test_13_synthetic_perturbation_leak_free_proof(synthetic_clinical_frame):
     """Empirical proof: altering validation/test values does not change fitted training parameters."""
-    df_clin, _, _ = load_raw_data()
-    train_sample = df_clin.iloc[:300].copy()
-    test_sample = df_clin.iloc[300:].copy()
+    train_sample = synthetic_clinical_frame.iloc[:50].copy()
+    test_sample = synthetic_clinical_frame.iloc[50:].copy()
     test_perturbed = test_sample.copy()
     for col in CONTINUOUS_COLS:
         test_perturbed[col] = 999999.0
@@ -244,6 +258,7 @@ def test_13_synthetic_perturbation_leak_free_proof():
     np.testing.assert_array_equal(centers_orig, centers_after, err_msg="Leakage detected via perturbation!")
 
 
+@pytest.mark.requires_split_data
 def test_14_no_unverified_image_mapping_in_splits():
     """Verify that no image filenames or image pixels are included in the supervised splits."""
     for fpath in PROCESSED_SPLITS_DIR.glob("*.csv"):
@@ -252,6 +267,7 @@ def test_14_no_unverified_image_mapping_in_splits():
             assert "image" not in col.lower(), f"Unverified image reference leaked into {fpath.name}!"
 
 
+@pytest.mark.requires_split_data
 def test_15_no_augmented_or_synthetic_derivatives():
     """Verify that split record counts match raw cohort partitions without synthetic expansion."""
     y_tr_a = pd.read_csv(PROCESSED_SPLITS_DIR / "cohort_a_train_targets.csv")
@@ -265,6 +281,7 @@ def test_15_no_augmented_or_synthetic_derivatives():
     assert len(y_tr_b) + len(y_va_b) + len(y_te_b) == 270
 
 
+@pytest.mark.requires_split_data
 def test_16_cohort_isolation():
     """Verify clinical-only (N=531) and multimodal (N=270) datasets are strictly separated."""
     with open(SPLITS_DIR / "cohort_a_clinical_splits.json", "r") as f:
@@ -276,6 +293,7 @@ def test_16_cohort_isolation():
     assert m_b["total_records"] == 270
 
 
+@pytest.mark.requires_split_data
 def test_17_manifests_agree_with_exported_files():
     """Verify that manifest index counts match exported split file row counts exactly."""
     with open(SPLITS_DIR / "cohort_a_clinical_splits.json", "r") as f:
@@ -291,10 +309,10 @@ def test_17_manifests_agree_with_exported_files():
         assert len(feat_df) == len(m_b["indices"][split])
 
 
-def test_18_cpu_pipeline_execution():
-    """Verify pipeline runs smoothly using CPU arithmetic without CUDA/GPU requirement."""
-    df_clin, _, _ = load_raw_data()
-    sample = df_clin.iloc[:40].copy()
+@pytest.mark.requires_raw_data
+def test_18_cpu_pipeline_execution(synthetic_clinical_frame):
+    """Verify pipeline runs smoothly on deterministic synthetic records without CUDA."""
+    sample = synthetic_clinical_frame.iloc[:40].copy()
     proc = build_clinical_preprocessor(scaling_method="robust")
     X_out, _ = preprocess_clinical_dataframe(sample, preprocessor=proc, fit=True)
     assert isinstance(X_out, pd.DataFrame)

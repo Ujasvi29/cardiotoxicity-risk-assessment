@@ -23,6 +23,7 @@ Automated test suite verifying Phase 6 requirements:
 from pathlib import Path
 import sys
 import warnings
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -47,13 +48,15 @@ from src.data.preprocessing import (
     BINARY_COLS,
     CONTINUOUS_COLS,
 )
+from src.utils.paths import get_data_root
 
 BASE_DIR = PROJECT_ROOT
-DATASET_DIR = BASE_DIR / "dataset"
+DATASET_DIR = get_data_root()
 SPLITS_DIR = BASE_DIR / "data" / "splits"
 PROCESSED_SPLITS_DIR = BASE_DIR / "data" / "processed" / "splits"
 
 
+@pytest.mark.requires_raw_data
 def test_1_raw_source_files_unmodified():
     """Verify raw dataset files in dataset/ have not been altered or overwritten."""
     clin_path = DATASET_DIR / "BC_cardiotox_clinical_variables.csv"
@@ -65,6 +68,7 @@ def test_1_raw_source_files_unmodified():
     assert comb_path.exists() and comb_path.stat().st_size == 3664729, "Combined raw CSV modified!"
 
 
+@pytest.mark.requires_split_data
 def test_2_target_and_metadata_excluded():
     """Verify target ('CTRCD') and event time ('time') are completely excluded from predictor matrices."""
     for cohort in ["cohort_a", "cohort_b"]:
@@ -76,6 +80,7 @@ def test_2_target_and_metadata_excluded():
             assert df.shape[1] == 25, f"Expected 25 predictor features, got {df.shape[1]} in {feat_file.name}"
 
 
+@pytest.mark.requires_split_data
 def test_3_target_values_and_integrity():
     """Verify target split files contain valid targets and preserve true cohort sums."""
     # Cohort A: 54 positives, 477 negatives total
@@ -99,9 +104,9 @@ def test_3_target_values_and_integrity():
     assert pos_b == 27, f"Expected 27 positives for Cohort B, got {pos_b}"
 
 
-def test_4_split_indices_reproducible():
+def test_4_split_indices_reproducible(synthetic_clinical_frame):
     """Verify splitting is strictly deterministic when given the fixed random seed."""
-    df_clin, _, _ = load_raw_data()
+    df_clin = synthetic_clinical_frame
     split1 = create_stratified_train_val_test_split(df_clin, seed=42)
     split2 = create_stratified_train_val_test_split(df_clin, seed=42)
 
@@ -110,6 +115,7 @@ def test_4_split_indices_reproducible():
     assert split1["test"] == split2["test"], "Non-deterministic test split!"
 
 
+@pytest.mark.requires_split_data
 def test_5_zero_record_overlap():
     """Verify zero patient index overlap between train, validation, and test sets within each cohort."""
     for manifest_name in ["cohort_a_clinical_splits.json", "cohort_b_multimodal_splits.json"]:
@@ -127,6 +133,7 @@ def test_5_zero_record_overlap():
         assert len(set_train | set_val | set_test) == manifest["total_records"]
 
 
+@pytest.mark.requires_split_data
 def test_6_ctrcd_stratification():
     """Verify that CTRCD prevalence is balanced across train, val, and test splits."""
     with open(SPLITS_DIR / "cohort_a_clinical_splits.json", "r") as f:
@@ -144,14 +151,9 @@ def test_6_ctrcd_stratification():
         assert 9.0 <= prev <= 11.5, f"Cohort B {split_name} prevalence deviated significantly: {prev}%"
 
 
-def test_7_data_dependent_transformations_fitted_on_train_only():
+def test_7_data_dependent_transformations_fitted_on_train_only(synthetic_clinical_frame):
     """Verify that preprocessor fitted on training split derives medians/centers strictly from train."""
-    df_clin, _, _ = load_raw_data()
-    with open(SPLITS_DIR / "cohort_a_clinical_splits.json", "r") as f:
-        manifest = json.load(f)
-
-    train_idx = manifest["indices"]["train"]
-    train_df = df_clin.iloc[train_idx].copy()
+    train_df = synthetic_clinical_frame.iloc[:60].copy()
 
     preprocessor = build_clinical_preprocessor(scaling_method="robust")
     _, fitted_proc = preprocess_clinical_dataframe(train_df, preprocessor=preprocessor, fit=True)
@@ -165,15 +167,14 @@ def test_7_data_dependent_transformations_fitted_on_train_only():
     )
 
 
-def test_8_leak_free_synthetic_perturbation():
+def test_8_leak_free_synthetic_perturbation(synthetic_clinical_frame):
     """
     CRITICAL EMPIRICAL LEAKAGE TEST:
     Artificially perturb validation/test data with huge outliers (e.g. 100,000.0).
     Verify that fitted training imputer and scaler parameters do not change at all.
     """
-    df_clin, _, _ = load_raw_data()
-    train_df = df_clin.iloc[:350].copy()
-    test_df_original = df_clin.iloc[350:].copy()
+    train_df = synthetic_clinical_frame.iloc[:50].copy()
+    test_df_original = synthetic_clinical_frame.iloc[50:].copy()
     test_df_perturbed = test_df_original.copy()
 
     # Inject extreme values into test set
@@ -201,6 +202,7 @@ def test_8_leak_free_synthetic_perturbation():
     np.testing.assert_array_equal(train_centers_before, train_centers_after, err_msg="Test set leakage altered training scaler!")
 
 
+@pytest.mark.requires_split_data
 def test_9_binary_columns_domain_validity():
     """Verify that all binary features remain strictly {0.0, 1.0} across all split files."""
     for cohort in ["cohort_a", "cohort_b"]:
@@ -212,6 +214,7 @@ def test_9_binary_columns_domain_validity():
                 assert unique_vals.issubset({0.0, 1.0, 0, 1}), f"Non-binary values in {col} of {feat_file.name}: {unique_vals}"
 
 
+@pytest.mark.requires_split_data
 def test_10_missing_values_fully_imputed():
     """Verify that no missing or NaN values remain in any generated split feature dataset."""
     for fpath in PROCESSED_SPLITS_DIR.glob("*_features.csv"):
@@ -220,6 +223,7 @@ def test_10_missing_values_fully_imputed():
         assert null_count == 0, f"Found {null_count} nulls in {fpath.name}!"
 
 
+@pytest.mark.requires_split_data
 def test_11_waveform_shapes_and_order():
     """Verify that all waveform splits maintain exactly 1001 columns in order t_1 .. t_1001."""
     expected_cols = [f"t_{i}" for i in range(1, 1002)]
@@ -232,6 +236,7 @@ def test_11_waveform_shapes_and_order():
             assert df.isnull().sum().sum() == 0, f"Nulls found in {wf_file.name}!"
 
 
+@pytest.mark.requires_split_data
 def test_12_multimodal_paired_integrity():
     """Verify that every record in Cohort B features matches exactly one waveform and target record."""
     for split in ["train", "val", "test"]:
@@ -246,6 +251,7 @@ def test_12_multimodal_paired_integrity():
         assert len(wf_scl_df) == n_rows, f"Row count mismatch: features ({n_rows}) vs scaled waveforms in {split}"
 
 
+@pytest.mark.requires_split_data
 def test_13_cohort_isolation():
     """Verify clinical-only (N=531) and multimodal (N=270) datasets are strictly separated."""
     with open(SPLITS_DIR / "cohort_a_clinical_splits.json", "r") as f:
@@ -258,10 +264,9 @@ def test_13_cohort_isolation():
     assert m_a["cohort"] != m_b["cohort"]
 
 
-def test_14_cpu_pipeline_execution():
+def test_14_cpu_pipeline_execution(synthetic_clinical_frame):
     """Verify pipeline functions execute seamlessly using CPU-only math without torch/GPU calls."""
-    df_clin, _, _ = load_raw_data()
-    sample = df_clin.iloc[:50].copy()
+    sample = synthetic_clinical_frame.iloc[:50].copy()
     proc = build_clinical_preprocessor(scaling_method="robust")
     X_sample, _ = preprocess_clinical_dataframe(sample, preprocessor=proc, fit=True)
     assert isinstance(X_sample, pd.DataFrame)

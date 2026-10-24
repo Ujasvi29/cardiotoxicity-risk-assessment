@@ -29,9 +29,10 @@ code --version       # VS Code
 ## Step 1: Clone the Repository
 
 ```powershell
-cd C:\dev
-git clone https://github.com/Ujasvi29/cardiotoxicity-risk-assessment.git "cardiotoxicity risk assesment"
-cd "cardiotoxicity risk assesment"
+New-Item -ItemType Directory -Force "$HOME\dev" | Out-Null
+Set-Location "$HOME\dev"
+git clone https://github.com/Ujasvi29/cardiotoxicity-risk-assessment.git
+Set-Location cardiotoxicity-risk-assessment
 ```
 
 ---
@@ -85,6 +86,14 @@ gitignored due to size). Each teammate must download it separately.
 1. Go to: https://figshare.com/articles/dataset/BC_cardiotox_A_cardiotoxicity_dataset_for_breast_cancer_patients/22650748
 2. Download all files
 3. Place them in the `dataset/` directory at the project root
+
+The project reads from `<repository>/dataset` by default. To keep the original
+dataset elsewhere, set `CARDIOTOXICITY_DATA_ROOT` to the directory containing
+the CSV files and optional `IMAGES/` folder before running a command:
+
+```powershell
+$env:CARDIOTOXICITY_DATA_ROOT = "D:\path\to\original-dataset"
+```
 
 ### Option B: Copy from a Teammate
 
@@ -140,7 +149,7 @@ else:
 ## Step 5: Open in VS Code
 
 ```powershell
-code "C:\dev\cardiotoxicity risk assesment"
+code .
 ```
 
 ### Recommended VS Code Extensions
@@ -161,7 +170,7 @@ code "C:\dev\cardiotoxicity risk assesment"
 ## Project Structure
 
 ```
-cardiotoxicity risk assesment/
+cardiotoxicity-risk-assessment/
 ├── .gitignore              # Git exclusions
 ├── README.md               # Project overview
 ├── requirements.txt        # Python dependencies

@@ -20,14 +20,20 @@ from pathlib import Path
 import sys
 import pandas as pd
 import numpy as np
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.utils.paths import get_data_root
+
 BASE_DIR = PROJECT_ROOT
-DATASET_DIR = BASE_DIR / "dataset"
+DATASET_DIR = get_data_root()
 MAPPING_DIR = BASE_DIR / "data" / "processed" / "mapping"
+
+
+pytestmark = pytest.mark.requires_mapping_data
 
 
 def test_1_source_dataset_files_unchanged():

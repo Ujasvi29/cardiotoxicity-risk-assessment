@@ -21,19 +21,19 @@ from scipy import stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-BASE_DIR = Path(r"c:\dev\cardiotoxicity risk assesment")
-DATASET_DIR = BASE_DIR / "dataset"
+from src.utils.paths import PROJECT_ROOT, get_data_root, require_raw_dataset
+
+BASE_DIR = PROJECT_ROOT
+DATASET_DIR = get_data_root()
 FIG_DIR = BASE_DIR / "outputs" / "figures"
 REPORT_DIR = BASE_DIR / "outputs" / "reports"
 
-FIG_DIR.mkdir(parents=True, exist_ok=True)
-REPORT_DIR.mkdir(parents=True, exist_ok=True)
-
 
 def load_datasets():
-    df_clin = pd.read_csv(DATASET_DIR / "BC_cardiotox_clinical_variables.csv", sep=';', decimal=',')
-    df_func = pd.read_csv(DATASET_DIR / "BC_cardiotox_functional_variable.csv", sep=';', decimal=',')
-    df_comb = pd.read_csv(DATASET_DIR / "BC_cardiotox_clinical_and_functional_variables.csv", sep=';', decimal=',')
+    data_root = require_raw_dataset()
+    df_clin = pd.read_csv(data_root / "BC_cardiotox_clinical_variables.csv", sep=';', decimal=',')
+    df_func = pd.read_csv(data_root / "BC_cardiotox_functional_variable.csv", sep=';', decimal=',')
+    df_comb = pd.read_csv(data_root / "BC_cardiotox_clinical_and_functional_variables.csv", sep=';', decimal=',')
     return df_clin, df_func, df_comb
 
 
@@ -205,6 +205,7 @@ def audit_echocardiographic_plausibility(df_clin):
 
 
 def generate_quality_figures(df_clin, df_func):
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
     """Generate diagnostic figures for data quality assessment."""
     # -------------------------------------------------------------
     # Figure 1: Clinical Distributions & Physiological Plausibility
@@ -294,6 +295,9 @@ def generate_quality_figures(df_clin, df_func):
 
 
 def main():
+    require_raw_dataset()
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     print("Executing Module 3 Data Quality Assessment...")
     df_clin, df_func, df_comb = load_datasets()
     

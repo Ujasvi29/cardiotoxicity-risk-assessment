@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import json
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.data.preprocessing import (
     CONTINUOUS_COLS,
@@ -35,12 +36,14 @@ from src.data.preprocessing import (
     preprocess_clinical_dataframe,
     preprocess_functional_waveforms,
 )
+from src.utils.paths import PROJECT_ROOT, get_data_root
 
-BASE_DIR = Path(r"c:\dev\cardiotoxicity risk assesment")
-DATASET_DIR = BASE_DIR / "dataset"
+BASE_DIR = PROJECT_ROOT
+DATASET_DIR = get_data_root()
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
 
 
+@pytest.mark.requires_raw_data
 def test_raw_files_unmodified():
     """Verify that original raw files in dataset/ have not been corrupted or altered."""
     clin_path = DATASET_DIR / "BC_cardiotox_clinical_variables.csv"
@@ -52,6 +55,7 @@ def test_raw_files_unmodified():
     assert comb_path.exists() and comb_path.stat().st_size == 3664729
 
 
+@pytest.mark.requires_processed_data
 def test_processed_files_exist():
     """Verify that all required processed files exist."""
     expected_files = [
@@ -70,6 +74,7 @@ def test_processed_files_exist():
         assert fpath.exists(), f"Missing processed file: {fname}"
 
 
+@pytest.mark.requires_processed_data
 def test_processed_shapes_and_completeness():
     """Verify exact matrix dimensions and complete absence of missing values."""
     # Full clinical cohort
@@ -104,6 +109,7 @@ def test_processed_shapes_and_completeness():
     assert wf_scale.isnull().sum().sum() == 0, "Nulls found in wf_scale!"
 
 
+@pytest.mark.requires_processed_data
 def test_target_label_integrity():
     """Verify target distributions are strictly preserved."""
     y_full = pd.read_csv(PROCESSED_DIR / "clinical_targets_full.csv")
@@ -118,6 +124,7 @@ def test_target_label_integrity():
     assert (y_multi[TARGET_COL] == 1).sum() == 27
 
 
+@pytest.mark.requires_processed_data
 def test_binary_domain_validity():
     """Verify binary features remain strictly {0.0, 1.0} after imputation."""
     X_full = pd.read_csv(PROCESSED_DIR / "clinical_features_imputed_full.csv")
@@ -126,6 +133,7 @@ def test_binary_domain_validity():
         assert unique_vals.issubset({0.0, 1.0, 0, 1}), f"Invalid values in {col}: {unique_vals}"
 
 
+@pytest.mark.requires_raw_data
 def test_leak_free_pipeline_behavior():
     """
     Test that preprocessor fitted on training fold transforms test fold without leakage.
@@ -150,6 +158,7 @@ def test_leak_free_pipeline_behavior():
     assert X_test_trans.isnull().sum().sum() == 0, "Test set contains nulls after leak-free transform!"
 
 
+@pytest.mark.requires_processed_data
 def test_feature_schema_validity():
     """Verify feature schema JSON is valid and matches code constants."""
     schema_path = PROCESSED_DIR / "feature_schema.json"

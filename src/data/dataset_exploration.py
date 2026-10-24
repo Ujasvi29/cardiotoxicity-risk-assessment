@@ -19,31 +19,31 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
 
+from src.utils.paths import PROJECT_ROOT, get_data_root, require_raw_dataset
+
 # Set plotting style
 plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
 plt.rcParams['font.sans-serif'] = 'Arial'
 plt.rcParams['axes.edgecolor'] = '#cccccc'
 plt.rcParams['axes.linewidth'] = 0.8
 
-BASE_DIR = Path(r"c:\dev\cardiotoxicity risk assesment")
-DATASET_DIR = BASE_DIR / "dataset"
+BASE_DIR = PROJECT_ROOT
+DATASET_DIR = get_data_root()
 IMAGES_DIR = DATASET_DIR / "IMAGES"
 FIG_DIR = BASE_DIR / "outputs" / "figures"
 REPORT_DIR = BASE_DIR / "outputs" / "reports"
 
-FIG_DIR.mkdir(parents=True, exist_ok=True)
-REPORT_DIR.mkdir(parents=True, exist_ok=True)
-
 
 def explore_directory_inventory():
     """Task 1: Catalog all files in dataset/."""
+    data_root = require_raw_dataset()
     inventory = []
-    for item in sorted(DATASET_DIR.iterdir()):
+    for item in sorted(data_root.iterdir()):
         if item.is_file():
             stat = item.stat()
             readable = os.access(item, os.R_OK)
             inventory.append({
-                "path": str(item.relative_to(BASE_DIR)),
+                "path": str(item.relative_to(data_root.parent)),
                 "filename": item.name,
                 "extension": item.suffix,
                 "size_bytes": stat.st_size,
@@ -55,7 +55,7 @@ def explore_directory_inventory():
             stat = item.stat()
             file_count = len(list(item.glob("*.png")))
             inventory.append({
-                "path": str(item.relative_to(BASE_DIR)),
+                "path": str(item.relative_to(data_root.parent)),
                 "filename": item.name,
                 "extension": "[directory]",
                 "size_bytes": sum(f.stat().st_size for f in item.iterdir() if f.is_file()),
@@ -68,7 +68,8 @@ def explore_directory_inventory():
 
 def explore_images():
     """Task 1 & 9: Inspect all 270 TDI images."""
-    img_files = sorted(list(IMAGES_DIR.glob("*.png")))
+    data_root = require_raw_dataset(include_images=True)
+    img_files = sorted(list((data_root / "IMAGES").glob("*.png")))
     hashes = {}
     dims = set()
     modes = {}
@@ -100,9 +101,10 @@ def explore_images():
 
 def explore_csvs():
     """Load and cross-verify the three CSV files."""
-    clin_path = DATASET_DIR / "BC_cardiotox_clinical_variables.csv"
-    func_path = DATASET_DIR / "BC_cardiotox_functional_variable.csv"
-    comb_path = DATASET_DIR / "BC_cardiotox_clinical_and_functional_variables.csv"
+    data_root = require_raw_dataset()
+    clin_path = data_root / "BC_cardiotox_clinical_variables.csv"
+    func_path = data_root / "BC_cardiotox_functional_variable.csv"
+    comb_path = data_root / "BC_cardiotox_clinical_and_functional_variables.csv"
 
     df_clin = pd.read_csv(clin_path, sep=';', decimal=',')
     df_func = pd.read_csv(func_path, sep=';', decimal=',')
@@ -212,6 +214,7 @@ def analyze_multimodal_correspondence(df_clin, df_func, df_comb):
 
 
 def generate_figures(df_clin, df_func, df_comb, class_dists):
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
     """Generate and save publication-quality visualization figures."""
     # -------------------------------------------------------------
     # Figure 1: Class Distribution Across Cohort Subsets
@@ -335,7 +338,7 @@ def generate_figures(df_clin, df_func, df_comb, class_dists):
     # -------------------------------------------------------------
     # Figure 4: Sample TDI Spectral Doppler Image & Waveform Overlay
     # -------------------------------------------------------------
-    sample_img_path = IMAGES_DIR / "image (1).png"
+    sample_img_path = require_raw_dataset(include_images=True) / "IMAGES" / "image (1).png"
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     
     with Image.open(sample_img_path) as im:
@@ -368,6 +371,8 @@ def generate_figures(df_clin, df_func, df_comb, class_dists):
 
 
 def main():
+    require_raw_dataset(include_images=True)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     print("Executing Module 2 Dataset Exploration...")
     inventory = explore_directory_inventory()
     img_summary = explore_images()

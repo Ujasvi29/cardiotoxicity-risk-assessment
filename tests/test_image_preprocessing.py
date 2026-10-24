@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from src.data.image_preprocessing import (
@@ -30,6 +31,7 @@ from src.data.image_preprocessing import (
 )
 
 
+@pytest.mark.requires_image_data
 def test_image_count_and_naming():
     """Verify exactly 270 PNG images named 'image (1).png' to 'image (270).png'."""
     files = list(IMAGES_DIR.glob("*.png"))
@@ -40,6 +42,7 @@ def test_image_count_and_naming():
     assert expected_names == actual_names, f"Filename mismatch: missing={expected_names - actual_names}"
 
 
+@pytest.mark.requires_image_data
 def test_image_readability_and_corruption():
     """Verify all 270 images open and decode without errors."""
     corrupted = []
@@ -53,6 +56,7 @@ def test_image_readability_and_corruption():
     assert len(corrupted) == 0, f"Corrupted images detected: {corrupted}"
 
 
+@pytest.mark.requires_image_data
 def test_image_dimensions_uniformity():
     """Verify all 270 images have dimensions 957x717."""
     for f in IMAGES_DIR.glob("*.png"):
@@ -60,6 +64,7 @@ def test_image_dimensions_uniformity():
             assert img.size == (957, 717), f"Unexpected size in {f.name}: {img.size}"
 
 
+@pytest.mark.requires_image_data
 def test_image_color_modes():
     """Verify documented color modes: 269 RGBA, 1 RGB (image (142).png)."""
     modes = {}
@@ -74,6 +79,7 @@ def test_image_color_modes():
         assert im142.mode == "RGB", f"Expected image (142).png to be RGB, found {im142.mode}"
 
 
+@pytest.mark.requires_image_data
 def test_raw_images_unmodified():
     """Verify raw images directory is read-only and files have not been overwritten."""
     assert IMAGES_DIR.exists()
@@ -83,6 +89,7 @@ def test_raw_images_unmodified():
     assert im1.stat().st_size > 0
 
 
+@pytest.mark.requires_image_data
 def test_single_image_transformation():
     """Verify candidate ROI crop and 224x224 RGB conversion pipeline."""
     sample_path = IMAGES_DIR / "image (1).png"
@@ -99,6 +106,7 @@ def test_single_image_transformation():
     assert 0.0 <= arr.min() and arr.max() <= 1.0, f"Values not in [0, 1]: min={arr.min()}, max={arr.max()}"
 
 
+@pytest.mark.requires_image_data
 def test_transformation_determinism():
     """Verify repeated execution on the same file yields identical arrays."""
     sample_path = IMAGES_DIR / "image (10).png"

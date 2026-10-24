@@ -22,6 +22,10 @@ scikit-learn>=1.5,<2
 # --- Image Handling ---
 Pillow>=10.0,<14
 
+# --- Image feature extraction (Module 9) ---
+torch>=2.2
+torchvision>=0.17
+
 # --- Jupyter Notebook Support ---
 jupyter>=1.1,<2
 ipykernel>=6.0
@@ -30,8 +34,6 @@ ipykernel>=6.0
 # Phase 2+ Dependencies (install when needed)
 # Uncomment when ready for model training:
 # ============================================================
-# torch>=2.14             # PyTorch (CPU): pip install torch --index-url https://download.pytorch.org/whl/cpu
-# torchvision>=0.29       # PyTorch Vision: pip install torchvision --index-url https://download.pytorch.org/whl/cpu
 # shap>=0.45              # SHAP explanations
 # streamlit>=1.38         # Web application
 # opencv-python>=4.9      # Image processing (alternative to Pillow)
