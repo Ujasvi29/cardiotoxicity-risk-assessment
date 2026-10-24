@@ -1,6 +1,10 @@
 {
   "project": "Interpretable Multimodal Framework for Cardiotoxicity Risk Assessment",
+  "schema_version": "1.0.0",
   "random_seed": 42,
+  "patient_identifier_status": "anonymized_technical_reference",
+  "patient_level_independence_verified": false,
+  "patient_identifier_limitation": "Technical row-level separation does not establish patient-level independence due to medical record anonymization.",
   "cohorts": {
     "cohort_a_clinical": {
       "source": "dataset/BC_cardiotox_clinical_variables.csv",

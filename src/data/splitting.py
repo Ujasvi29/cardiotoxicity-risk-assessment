@@ -167,19 +167,47 @@ def generate_and_save_all_splits(seed: int = DEFAULT_RANDOM_SEED) -> Dict:
     profile_multimodal = profile_split(df_multi, splits_multimodal, "Cohort B (Multimodal)")
 
     # Save manifests
+    # Cohort A record-level assignments
+    rec_assignments_a = {}
+    for part, idxs in splits_clinical.items():
+        for i in idxs:
+            rec_assignments_a[f"REC_CLIN_{i:03d}"] = {
+                "source_row": int(i),
+                "assigned_partition": part,
+                "CTRCD": int(df_clin[TARGET_COL].iloc[i]),
+                "patient_id": None
+            }
+
     manifest_clinical = {
         "cohort": "clinical_only",
         "description": "531 breast cancer patients with 25 baseline clinical features",
         "total_records": 531,
         "seed": seed,
         "split_ratios": {"train": 0.70, "val": 0.15, "test": 0.15},
+        "split_generation_method": "StratifiedShuffleSplit (two-stage)",
+        "cross_validation_method": "StratifiedKFold (5-fold)",
+        "patient_identifier_status": "anonymized_technical_reference",
+        "patient_level_independence_verified": False,
+        "patient_identifier_limitation": "Patient identifiers were removed during clinical ethical anonymization. Partitions guarantee technical row isolation but cannot verify absence of repeat examinations.",
         "profiles": profile_clinical,
         "indices": splits_clinical,
-        "kfold_indices": kfolds_clinical
+        "kfold_indices": kfolds_clinical,
+        "record_assignments": rec_assignments_a
     }
     clin_manifest_path = SPLITS_DIR / "cohort_a_clinical_splits.json"
     with open(clin_manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_clinical, f, indent=2)
+
+    # Cohort B record-level assignments
+    rec_assignments_b = {}
+    for part, idxs in splits_multimodal.items():
+        for i in idxs:
+            rec_assignments_b[f"REC_MULTI_{i:03d}"] = {
+                "source_row": int(i),
+                "assigned_partition": part,
+                "CTRCD": int(df_multi[TARGET_COL].iloc[i]),
+                "patient_id": None
+            }
 
     manifest_multimodal = {
         "cohort": "multimodal",
@@ -187,9 +215,15 @@ def generate_and_save_all_splits(seed: int = DEFAULT_RANDOM_SEED) -> Dict:
         "total_records": 270,
         "seed": seed,
         "split_ratios": {"train": 0.70, "val": 0.15, "test": 0.15},
+        "split_generation_method": "StratifiedShuffleSplit (two-stage)",
+        "cross_validation_method": "StratifiedKFold (5-fold)",
+        "patient_identifier_status": "anonymized_technical_reference",
+        "patient_level_independence_verified": False,
+        "patient_identifier_limitation": "Patient identifiers were removed during clinical ethical anonymization. Partitions guarantee technical row isolation but cannot verify absence of repeat examinations.",
         "profiles": profile_multimodal,
         "indices": splits_multimodal,
-        "kfold_indices": kfolds_multimodal
+        "kfold_indices": kfolds_multimodal,
+        "record_assignments": rec_assignments_b
     }
     multi_manifest_path = SPLITS_DIR / "cohort_b_multimodal_splits.json"
     with open(multi_manifest_path, "w", encoding="utf-8") as f:
@@ -198,7 +232,11 @@ def generate_and_save_all_splits(seed: int = DEFAULT_RANDOM_SEED) -> Dict:
     # Save data configuration in configs/
     data_config = {
         "project": "Interpretable Multimodal Framework for Cardiotoxicity Risk Assessment",
+        "schema_version": "1.0.0",
         "random_seed": seed,
+        "patient_identifier_status": "anonymized_technical_reference",
+        "patient_level_independence_verified": False,
+        "patient_identifier_limitation": "Technical row-level separation does not establish patient-level independence due to medical record anonymization.",
         "cohorts": {
             "cohort_a_clinical": {
                 "source": "dataset/BC_cardiotox_clinical_variables.csv",
