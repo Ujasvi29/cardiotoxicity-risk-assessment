@@ -206,12 +206,13 @@ def test_search_rejects_single_class_validation_before_training():
     trainer = small_trainer(max_epochs=1)
     with pytest.raises(ValueError, match="both CTRCD classes"):
         trainer.fit(small_model(), synthetic_data(), single_class)
-    with pytest.raises(ValueError, match="must contain both CTRCD classes"):
-        trainer.evaluate(
-            small_model(), single_class,
-            train_data=synthetic_data(seed=52),
-            validation_data=synthetic_data(8, seed=59),
-        )
+    metrics = trainer.evaluate(
+        small_model(), single_class,
+        train_data=synthetic_data(seed=52),
+        validation_data=synthetic_data(8, seed=59),
+    )
+    assert metrics["roc_auc"] is None
+    assert metrics["class_counts"] == {"0": 6, "1": 0}
 
 
 @pytest.mark.parametrize("image,clinical,labels,error", [
@@ -341,8 +342,9 @@ def test_metrics_reject_non_normalized_and_one_class_inputs():
 
     with pytest.raises(ValueError, match="sum to 1"):
         _metrics(np.asarray([0, 1]), np.asarray([[0.8, 0.3], [0.2, 0.8]]))
-    with pytest.raises(ValueError, match="both classes"):
-        _metrics(np.asarray([0, 0]), np.asarray([[0.8, 0.2], [0.7, 0.3]]))
+    metrics = _metrics(np.asarray([0, 0]), np.asarray([[0.8, 0.2], [0.7, 0.3]]))
+    assert metrics["roc_auc"] is None
+    assert metrics["recall_class_1_sensitivity"] is None
 
 
 def test_training_reproducibility_preserves_global_rng():

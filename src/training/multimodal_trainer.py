@@ -22,10 +22,7 @@ from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
     confusion_matrix,
-    f1_score,
     log_loss,
-    precision_score,
-    recall_score,
     roc_auc_score,
 )
 from torch import nn
@@ -37,6 +34,7 @@ from src.models.multimodal_classifier import (
     MultimodalClassifierConfig,
     MultimodalCTRCDClassifier,
 )
+from src.training.class_imbalance import compute_class_weights
 
 
 @dataclass(frozen=True)
@@ -50,6 +48,7 @@ class TrainingConfig:
     weight_decay: float = 1e-4
     seed: int = 42
     device: str = "cpu"
+    class_weighting: bool = False
 
 
 @dataclass(frozen=True)
@@ -84,6 +83,7 @@ class TuningConfig:
     max_epochs: int = 60
     patience: int = 8
     device: str = "cpu"
+    class_weighting: bool = False
 
 
 class TrialFailure(RuntimeError):
@@ -244,6 +244,8 @@ def _validate_training_config(config: TrainingConfig) -> torch.device:
         raise ValueError("CPU device must not include an index; use 'cpu'")
     if device.type not in {"cpu", "cuda"}:
         raise ValueError("device must be CPU or CUDA")
+    if not isinstance(config.class_weighting, bool):
+        raise ValueError("class_weighting must be a boolean")
     return device
 
 
@@ -324,23 +326,43 @@ def _metrics(labels: np.ndarray, probabilities: np.ndarray) -> dict[str, Any]:
         raise ValueError("metric probabilities must be finite values in [0, 1]")
     if not np.allclose(probabilities.sum(axis=1), 1.0, rtol=1e-5, atol=1e-6):
         raise ValueError("each metric probability row must sum to 1")
-    if np.unique(labels).size != 2:
-        raise ValueError("ROC-AUC and average precision require both classes")
     predicted = probabilities.argmax(axis=1)
     matrix = confusion_matrix(labels, predicted, labels=[0, 1])
     tn, fp, fn, tp = (int(value) for value in matrix.ravel())
+    negative_count = tn + fp
+    positive_count = tp + fn
+    predicted_positive = tp + fp
+    predicted_negative = tn + fn
+    precision = tp / predicted_positive if predicted_positive else None
+    sensitivity = tp / positive_count if positive_count else None
+    specificity = tn / negative_count if negative_count else None
+    negative_predictive_value = tn / predicted_negative if predicted_negative else None
+    f1_denominator = 2 * tp + fp + fn
+    f1 = 2 * tp / f1_denominator if f1_denominator else None
+    has_both_classes = positive_count > 0 and negative_count > 0
+    roc_auc = float(roc_auc_score(labels, probabilities[:, 1])) if has_both_classes else None
+    average_precision = float(average_precision_score(labels, probabilities[:, 1])) if positive_count else None
+    balanced_accuracy = (sensitivity + specificity) / 2 if has_both_classes else None
+    one_hot = np.eye(2, dtype=np.float64)[labels]
+    brier_score = float(np.mean(np.square(probabilities - one_hot).sum(axis=1)))
     return {
         "count": int(len(labels)),
         "class_counts": {"0": int((labels == 0).sum()), "1": int((labels == 1).sum())},
+        "class_proportions": {"0": float(negative_count / len(labels)), "1": float(positive_count / len(labels))},
+        "positive_class": {"label": 1, "meaning": "CTRCD-positive"},
         "accuracy": float(accuracy_score(labels, predicted)),
-        "precision_class_1": float(precision_score(labels, predicted, pos_label=1, zero_division=0)),
-        "recall_class_1_sensitivity": float(recall_score(labels, predicted, pos_label=1, zero_division=0)),
-        "f1_class_1": float(f1_score(labels, predicted, pos_label=1, zero_division=0)),
-        "specificity_class_0": float(tn / (tn + fp)) if (tn + fp) else None,
+        "precision_class_1": precision,
+        "recall_class_1_sensitivity": sensitivity,
+        "specificity_class_0": specificity,
+        "negative_predictive_value_class_0": negative_predictive_value,
+        "f1_class_1": f1,
+        "balanced_accuracy": balanced_accuracy,
         "confusion_matrix_labels_0_1": matrix.tolist(),
-        "confusion_denominators": {"negative": tn + fp, "positive": tp + fn},
-        "roc_auc": float(roc_auc_score(labels, probabilities[:, 1])),
-        "average_precision": float(average_precision_score(labels, probabilities[:, 1])),
+        "confusion_denominators": {"negative": negative_count, "positive": positive_count},
+        "roc_auc": roc_auc,
+        "average_precision": average_precision,
+        "average_precision_class_1": average_precision,
+        "brier_score": brier_score,
         "log_loss": float(log_loss(labels, probabilities, labels=[0, 1])),
     }
 
@@ -399,7 +421,17 @@ class MultimodalTrainer:
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
         )
-        criterion = nn.CrossEntropyLoss()
+        class_weights = None
+        if self.config.class_weighting:
+            parameter = next(model.parameters())
+            class_weights = compute_class_weights(
+                train_labels,
+                class_labels=CTRCD_CLASS_LABELS,
+                device=self.device,
+                dtype=parameter.dtype,
+            )
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
+        validation_criterion = nn.CrossEntropyLoss()
         histories: dict[str, list[float]] = {"train_loss": [], "validation_loss": [], "validation_roc_auc": [], "validation_accuracy": []}
         best_auc = -float("inf")
         best_epoch = 0
@@ -430,7 +462,7 @@ class MultimodalTrainer:
                     train_loss_sum += float(loss.detach()) * int(target.shape[0])
                     train_count += int(target.shape[0])
 
-                val_loss, val_labels_np, val_probabilities = self._predict(model, val_loader, criterion)
+                val_loss, val_labels_np, val_probabilities = self._predict(model, val_loader, validation_criterion)
                 validation_metrics = _metrics(val_labels_np, val_probabilities)
                 histories["train_loss"].append(train_loss_sum / train_count)
                 histories["validation_loss"].append(val_loss)
@@ -458,6 +490,11 @@ class MultimodalTrainer:
                 "0": int((train_labels == 0).sum()),
                 "1": int((train_labels == 1).sum()),
             },
+            "training_class_proportions": {
+                "0": int((train_labels == 0).sum()) / len(train_labels),
+                "1": int((train_labels == 1).sum()) / len(train_labels),
+            },
+            "class_weights": class_weights.detach().cpu().tolist() if class_weights is not None else None,
             "validation_roc_auc_reliability_note": (
                 "Validation ranking is highly uncertain because one or both class counts are below 5."
                 if min(int((val_labels == 0).sum()), int((val_labels == 1).sum())) < 5
@@ -535,9 +572,6 @@ class MultimodalTrainer:
         _check_partition_disjoint(train_data, validation_data, "train_data", "validation_data")
         _check_partition_disjoint(train_data, test_data, "train_data", "test_data")
         _check_partition_disjoint(validation_data, test_data, "validation_data", "test_data")
-        labels = torch.stack([test_data[index][2] for index in range(len(test_data))])
-        if torch.unique(labels).numel() != 2:
-            raise ValueError("test_data ROC-AUC is undefined because it must contain both CTRCD classes")
         labels, probabilities = self._predict_arrays(model, test_data)
         return _metrics(labels, probabilities)
 
@@ -613,6 +647,8 @@ class MultimodalHyperparameterSearch:
             raise ValueError("trial_count must be a positive integer")
         if any(not isinstance(value, int) or isinstance(value, bool) or value < 1 for value in (config.max_epochs, config.patience)):
             raise ValueError("max_epochs and patience must be positive integers")
+        if not isinstance(config.class_weighting, bool):
+            raise ValueError("class_weighting must be a boolean")
         if not isinstance(config.search_seed, int) or isinstance(config.search_seed, bool) or not -(2**63) <= config.search_seed <= 2**64 - 1:
             raise ValueError("search_seed must be an integer in [-2**63, 2**64 - 1]")
         if config.search_seed + config.trial_count - 1 > 2**64 - 1:
@@ -663,7 +699,12 @@ class MultimodalHyperparameterSearch:
                 batch_size=int(rng.choice(self.space.batch_sizes)),
                 seed=self.config.search_seed + index,
             )
-            record: dict[str, Any] = {"trial": index + 1, "parameters": asdict(params), "seed": params.seed}
+            record: dict[str, Any] = {
+                "trial": index + 1,
+                "parameters": asdict(params),
+                "seed": params.seed,
+                "class_weighting": self.config.class_weighting,
+            }
             try:
                 model = model_factory(params)
                 if not isinstance(model, MultimodalCTRCDClassifier):
@@ -679,6 +720,7 @@ class MultimodalHyperparameterSearch:
                     weight_decay=params.weight_decay,
                     seed=params.seed,
                     device=self.config.device,
+                    class_weighting=self.config.class_weighting,
                 )
                 trial_dir = output_dir / f"trial_{index + 1:03d}" if output_dir is not None else None
                 result = MultimodalTrainer(trainer_config).fit(model, train_data, validation_data, output_dir=trial_dir)
@@ -702,6 +744,7 @@ class MultimodalHyperparameterSearch:
                     "selection_metric": "validation_roc_auc",
                     "search_seed": self.config.search_seed,
                     "trial_count": self.config.trial_count,
+                    "class_weighting": self.config.class_weighting,
                     "best_trial": best_trial,
                     "trials": records,
                 }
@@ -717,6 +760,7 @@ class MultimodalHyperparameterSearch:
             "selection_metric": "validation_roc_auc",
             "search_seed": self.config.search_seed,
             "trial_count": self.config.trial_count,
+            "class_weighting": self.config.class_weighting,
             "best_trial": best_trial,
             "trials": records,
         }
