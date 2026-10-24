@@ -119,9 +119,19 @@ def test_trainer_uses_only_train_labels_and_default_keeps_unweighted_mode():
     second_result = trainer.fit(tiny_model(), train, different_validation_prevalence)
     np.testing.assert_allclose(second_result["class_weights"], result["class_weights"])
     # Evaluation labels are not inputs to the weight calculation; one-class
-    # test evaluation remains reportable with undefined ranking/sensitivity.
+    # test evaluation remains reportable. Use known positive predictions here
+    # so sensitivity has a deterministic expected value independent of random
+    # synthetic embeddings and test order.
+    evaluation_model = tiny_model()
+
+    def predict_positive(image, clinical):
+        logits = torch.zeros(image.shape[0], 2, device=image.device)
+        logits[:, 1] = 1.0
+        return logits
+
+    evaluation_model.forward = predict_positive
     test_metrics = trainer.evaluate(
-        tiny_model(), test, train_data=train, validation_data=validation,
+        evaluation_model, test, train_data=train, validation_data=validation,
     )
     assert test_metrics["class_counts"] == {"0": 0, "1": 4}
     assert test_metrics["roc_auc"] is None
